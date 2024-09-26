@@ -7,6 +7,7 @@ defmodule ExBanking.Account do
   alias ExBanking.Wallet
 
   @req_limit Application.compile_env!(:ex_banking, :requests_per_user_limit)
+  @requests_timeout Application.compile_env!(:ex_banking, :requests_timeout)
 
   defmodule State do
     @moduledoc false
@@ -37,7 +38,7 @@ defmodule ExBanking.Account do
         %State{wallet: wallet} = state
       ) do
     if req_limit_exceeded?(state) do
-      send(sender_pid, {:async_deposit_confirm, lock_ref, {:error, :too_many_requests}})
+      send(sender_pid, {:async_deposit_confirm, lock_ref, currency, {:error, :too_many_requests}})
       {:noreply, state}
     else
       new_wallet = Wallet.deposit(wallet, currency, amount)
@@ -84,7 +85,7 @@ defmodule ExBanking.Account do
   @impl GenServer
   def handle_call(request, from, state) do
     if req_limit_exceeded?(state) do
-      {:error, :too_many_requests}
+      {:reply, {:error, :too_many_requests}, state}
     else
       process_call(request, from, state)
     end
@@ -151,9 +152,10 @@ defmodule ExBanking.Account do
   defp call(user_name, method, params) when is_binary(user_name) do
     # Atom should be created in start_link function
     server_name = user_name |> Utils.user_name_to_server_name() |> String.to_existing_atom()
-    GenServer.call(server_name, {method, params})
-  rescue
-    _e in ArgumentError -> {:error, :user_does_not_exist}
+    GenServer.call(server_name, {method, params}, @requests_timeout)
+  catch
+    :exit, _ -> {:error, :request_timeout}
+    :error, :badarg -> {:error, :user_does_not_exist}
   end
 
   defp call(_, _, _), do: {:error, :wrong_arguments}
