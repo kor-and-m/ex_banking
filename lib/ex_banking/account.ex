@@ -6,7 +6,7 @@ defmodule ExBanking.Account do
   alias ExBanking.Utils
   alias ExBanking.Wallet
 
-  @req_limit 10
+  @req_limit Application.compile_env!(:ex_banking, :requests_per_user_limit)
 
   defmodule State do
     @moduledoc false

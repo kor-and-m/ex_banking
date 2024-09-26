@@ -1,7 +1,7 @@
 defmodule ExBanking.Wallet do
   @moduledoc false
 
-  @amount_precision 2
+  @amount_precision Application.compile_env!(:ex_banking, :amount_precision)
 
   defstruct [:currencies, :locks]
 
