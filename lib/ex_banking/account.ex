@@ -38,7 +38,7 @@ defmodule ExBanking.Account do
         %State{wallet: wallet} = state
       ) do
     if req_limit_exceeded?(state) do
-      send(sender_pid, {:async_deposit_confirm, lock_ref, currency, {:error, :too_many_requests}})
+      send(sender_pid, {:async_deposit_confirm, lock_ref, currency, {:error, :too_many_requests_to_user}})
       {:noreply, state}
     else
       new_wallet = Wallet.deposit(wallet, currency, amount)
@@ -65,7 +65,7 @@ defmodule ExBanking.Account do
 
     new_wallet =
       case res do
-        {:error, :too_many_requests} ->
+        {:error, :too_many_requests_to_user} ->
           GenServer.reply(from, {:error, :too_many_requests_to_receiver})
           Wallet.cancel_transfer(wallet, lock_ref)
 
@@ -85,7 +85,7 @@ defmodule ExBanking.Account do
   @impl GenServer
   def handle_call(request, from, state) do
     if req_limit_exceeded?(state) do
-      {:reply, {:error, :too_many_requests}, state}
+      {:reply, {:error, :too_many_requests_to_user}, state}
     else
       process_call(request, from, state)
     end
