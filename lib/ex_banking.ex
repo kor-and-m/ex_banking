@@ -38,6 +38,9 @@ defmodule ExBanking do
   def send(_, _, _, _), do: {:error, :wrong_arguments}
 
   defp wrap_transfer({:error, :user_does_not_exist}), do: {:error, :sender_does_not_exist}
-  defp wrap_transfer({:error, :too_many_requests_to_user}), do: {:error, :too_many_requests_to_sender}
+
+  defp wrap_transfer({:error, :too_many_requests_to_user}),
+    do: {:error, :too_many_requests_to_sender}
+
   defp wrap_transfer(res), do: res
 end

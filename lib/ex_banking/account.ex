@@ -17,13 +17,22 @@ defmodule ExBanking.Account do
   def deposit(user_name, currency, amount), do: call(user_name, :deposit, [currency, amount])
   def withdraw(user_name, currency, amount), do: call(user_name, :withdraw, [currency, amount])
 
-  def transfer(from_user_name, to_user_name, currency, amount),
-    do: call(from_user_name, :transfer, [to_user_name, currency, amount])
+  def transfer(from_user_name, to_user_name, currency, amount) do
+    to_user_name
+    |> Utils.user_name_to_atom()
+    |> case do
+      {:ok, to_server_name} ->
+        call(from_user_name, :transfer, [to_server_name, currency, amount])
+
+      {:error, :user_does_not_exist} ->
+        {:error, :receiver_does_not_exist}
+    end
+  end
 
   def get_balance(user_name, currency), do: call(user_name, :get_balance, [currency])
 
   def start_link(user_name) when is_binary(user_name) do
-    server_name = user_name |> Utils.user_name_to_server_name() |> String.to_atom()
+    server_name = Utils.user_name_to_atom!(user_name)
     GenServer.start_link(__MODULE__, user_name, name: server_name)
   end
 
@@ -38,7 +47,11 @@ defmodule ExBanking.Account do
         %State{wallet: wallet} = state
       ) do
     if req_limit_exceeded?(state) do
-      send(sender_pid, {:async_deposit_confirm, lock_ref, currency, {:error, :too_many_requests_to_user}})
+      send(
+        sender_pid,
+        {:async_deposit_confirm, lock_ref, currency, {:error, :too_many_requests_to_user}}
+      )
+
       {:noreply, state}
     else
       new_wallet = Wallet.deposit(wallet, currency, amount)
@@ -112,7 +125,7 @@ defmodule ExBanking.Account do
   end
 
   defp process_call(
-         {:transfer, [to_user_name, currency, amount]},
+         {:transfer, [to_server_name, currency, amount]},
          from,
          %State{wallet: wallet, transfer_requests: transfer_requests} = state
        ) do
@@ -122,10 +135,7 @@ defmodule ExBanking.Account do
       {:ok, new_wallet} ->
         sender_pid = self()
 
-        server_name =
-          to_user_name |> Utils.user_name_to_server_name() |> String.to_existing_atom()
-
-        send(server_name, {:async_deposit, sender_pid, lock_ref, currency, amount})
+        send(to_server_name, {:async_deposit, sender_pid, lock_ref, currency, amount})
 
         {:noreply,
          %State{
@@ -137,8 +147,6 @@ defmodule ExBanking.Account do
       {:error, _} = err ->
         {:reply, err, state}
     end
-  rescue
-    _e in ArgumentError -> {:reply, {:error, :receiver_does_not_exist}, state}
   end
 
   defp process_call(_, _from, state) do
@@ -150,12 +158,17 @@ defmodule ExBanking.Account do
   end
 
   defp call(user_name, method, params) when is_binary(user_name) do
-    # Atom should be created in start_link function
-    server_name = user_name |> Utils.user_name_to_server_name() |> String.to_existing_atom()
-    GenServer.call(server_name, {method, params}, @requests_timeout)
+    user_name
+    |> Utils.user_name_to_atom()
+    |> case do
+      {:ok, server_name} ->
+        GenServer.call(server_name, {method, params}, @requests_timeout)
+
+      {:error, :user_does_not_exist} ->
+        {:error, :user_does_not_exist}
+    end
   catch
     :exit, _ -> {:error, :request_timeout}
-    :error, :badarg -> {:error, :user_does_not_exist}
   end
 
   defp call(_, _, _), do: {:error, :wrong_arguments}

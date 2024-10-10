@@ -8,11 +8,11 @@ defmodule ExBankingTest do
   @user "ExBankingUser"
   @user2 "ExBankingUser2"
   @user3 "ExBankingUser3"
-
   @user4 "ExBankingUser4"
   @user5 "ExBankingUser5"
+  @user6 "ExBankingUser6"
 
-  @broken_user "broken_user"
+  @moke_user "moke_user"
 
   @currency "USD"
 
@@ -42,9 +42,18 @@ defmodule ExBankingTest do
   end
 
   test "sender doesn't exist test" do
+    assert(ExBanking.create_user(@user6) === :ok)
+
+    assert(
+      ExBanking.send("fakeuser", @user6, 0.791, @currency) ===
+        {:error, :sender_does_not_exist}
+    )
+  end
+
+  test "receiver doesn't exist test" do
     assert(
       ExBanking.send("fakeuser", "fakeuser", 0.791, @currency) ===
-        {:error, :sender_does_not_exist}
+        {:error, :receiver_does_not_exist}
     )
   end
 
@@ -64,26 +73,60 @@ defmodule ExBankingTest do
     assert(ExBanking.create_user(@user5) === :ok)
     assert(ExBanking.deposit(@user4, 5, @currency) === {:ok, 5.0})
     assert(ExBanking.deposit(@user5, 5, @currency) === {:ok, 5.0})
-    broken_user_pid = fake_user(@broken_user)
+    moke_user_pid = fake_user(@moke_user)
 
     for _i <- 1..@req_limit do
-      assert({:error, :request_timeout} === ExBanking.send(@user4, @broken_user, 0.1, @currency))
+      assert({:error, :request_timeout} === ExBanking.send(@user4, @moke_user, 0.1, @currency))
     end
 
     assert(
       {:error, :too_many_requests_to_sender} ===
-        ExBanking.send(@user4, @broken_user, 0.1, @currency)
+        ExBanking.send(@user4, @moke_user, 0.1, @currency)
+    )
+
+    assert(
+      {:error, :too_many_requests_to_user} ===
+        ExBanking.withdraw(@user4, 0.1, @currency)
     )
 
     assert(
       {:error, :too_many_requests_to_receiver} === ExBanking.send(@user5, @user4, 0.1, @currency)
     )
 
-    send(broken_user_pid, :stop)
+    send(moke_user_pid, :stop)
+  end
+
+  test "async real high load test" do
+    users = Enum.map(1..5, fn idx -> "DynamicUser#{idx}" end)
+    Enum.each(users, &ExBanking.create_user/1)
+    Enum.each(users, fn user -> ExBanking.deposit(user, 500, @currency) end)
+
+    test_pid = self()
+
+    for _i <- 1..100 do
+      spawn(fn ->
+        user1 = "DynamicUser#{:rand.uniform(5) - 1}"
+        user2 = "DynamicUser#{:rand.uniform(5) - 1}"
+        send(test_pid, ExBanking.send(user1, user2, 0.1, @currency))
+      end)
+    end
+
+    assert_receive({:error, :too_many_requests_to_receiver}, 50)
+    assert_receive({:error, :too_many_requests_to_sender}, 50)
+
+    Process.sleep(5)
+
+    sum =
+      Enum.reduce(users, 0, fn user, acc ->
+        {:ok, balance} = ExBanking.get_balance(user, @currency)
+        acc + balance
+      end)
+
+    assert(sum === 2_500.0)
   end
 
   defp fake_user(user_name) do
-    server_name = user_name |> Utils.user_name_to_server_name() |> String.to_atom()
+    server_name = Utils.user_name_to_atom!(user_name)
     fake_process = spawn(&loop/0)
     Process.register(fake_process, server_name)
     fake_process

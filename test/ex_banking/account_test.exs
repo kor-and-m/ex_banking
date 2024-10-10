@@ -68,6 +68,6 @@ defmodule ExBanking.AccountTest do
   test "transfer from not existing user" do
     res = Account.transfer("account_test100500", "account_test100500", "USD", 0.7)
 
-    assert(res === {:error, :user_does_not_exist})
+    assert(res === {:error, :receiver_does_not_exist})
   end
 end
